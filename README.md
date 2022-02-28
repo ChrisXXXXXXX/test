@@ -14,4 +14,4 @@
 # 运行结果：
 <img width="992" alt="image" src="https://user-images.githubusercontent.com/95465284/155994483-419d923e-ce1c-4b01-b9bd-571a6767eaf4.png">
 <img width="995" alt="image" src="https://user-images.githubusercontent.com/95465284/155994599-f422a10a-9ba7-4cdc-b139-bdd15de8d5fe.png">
-可见 deposit 事件被成功触发了
+可见 deposit 事件被成功触发了。
