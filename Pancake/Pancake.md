@@ -11,6 +11,7 @@ contract MasterChef is Ownable {   //继承了 Owner 合约，这个合约主要
     //每一个用户的信息
     struct UserInfo {               //这个结构体定义了池子里面的单个用户的相关信息
         uint256 amount;             //amount：用户质押了多少 LP tokens
+        
         //rewardDebt：指用户不可提取的那部分奖励。
         //为什么呢？因为用户的奖励是一个减法运算，大概是用户取出奖励时候的奖励总数-用户存进来时候的奖励总数。
         //所以这个值就计算了用户存进来时候的奖励总数，相当于一个存进来之前的存档，用于最后计算差值。
@@ -21,12 +22,15 @@ contract MasterChef is Ownable {   //继承了 Owner 合约，这个合约主要
     //每一个池子的信息
     struct PoolInfo {
         IBEP20 lpToken;           //LPToken 的 地址 
+        
         // allocPoint：大概翻译为分配点。就是说每个区块都在挖指定的奖励币，在这里是 cake（为什么是 cake 后面会说到）。
         //然后挖出来的 cake tokens 怎么分呢？分有两个层级，一是 pool 池子，二是 user 用户。先是分给池子，然后分给池子里的用户。
         //这个变量就是说池子分配的比例。池子也是按照比例分的：allocPoint/totalAllocPoints
         //现在应该很好理解了，allocPoint 指单个池子所占的比例，totalAllocPoints 是所有池子加起来一共是多少分配点
         uint256 allocPoint;       
+        
         uint256 lastRewardBlock;  //上一次分配 CAKE 代币的区块号
+        
         uint256 accCakePerShare;  //累计每个 LP Token 可分到的 Cake Token 数量，为了防止小数出现，会乘以1e12
                                   //这个值最终会用在单个用户的奖励计算中
     }
@@ -64,20 +68,12 @@ contract MasterChef is Ownable {   //继承了 Owner 合约，这个合约主要
     mapping (uint256 => mapping (address => UserInfo)) public userInfo;
     
     // 所有矿池的分配点之和
-    //比如说，masterchef 里面
-    // 所有矿池的分配点之和现在有
-    // 所有矿池的分配点之和
+    //比如说，masterchef 里面 3 个 pool，每个 pool 的 allocPoint 都是 10，那么 totalAllocPoint 就是 30。现在加了第 4 个 pool，其 allocPoint 是 5，那么现在 totalAllocPoint 就是 35。
     uint256 public totalAllocPoint = 0;
-    // The block number when CAKE mining starts.
+    
+    // 开始挖矿（cake）的区块高度
     uint256 public startBlock;
-  // 矿池列表
-    PoolInfo[] public poolInfo;
-    // 每个矿池中用户的信息
-    mapping (uint256 => mapping (address => UserInfo)) public userInfo;
-    // 所有矿池的权重之和
-    uint256 public totalAllocPoint = 0;
-    // 其实挖矿的区块高度
-    uint256 public startBlock;
+
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
@@ -95,7 +91,9 @@ contract MasterChef is Ownable {   //继承了 Owner 合约，这个合约主要
         cakePerBlock = _cakePerBlock;
         startBlock = _startBlock;
 
-        // staking pool
+        // 在构造器函数中，设定了 pool[0]，这就是所谓的 staking pool 质押池，后面会通过 enterStaking 和 leaveStaking 函数在这个质押池中存入和取出 cake。
+        // accCakePerShare 为0，因为目前每个 lp token 也就是 cake 分配到的 cake 奖励还是 0 个
+        staking pool
         poolInfo.push(PoolInfo({
             lpToken: _cake,
             allocPoint: 1000,
@@ -108,6 +106,72 @@ contract MasterChef is Ownable {   //继承了 Owner 合约，这个合约主要
     }
 ```
 
+# 2、两个非常简单的函数
+
+```
+    //只有合约 owner 可以更新奖励倍数，一般是早期是一个大于 1 的倍数，后面变成1，就是没有额外的奖励了
+    function updateMultiplier(uint256 multiplierNumber) public onlyOwner {
+        BONUS_MULTIPLIER = multiplierNumber;
+    }
+
+    //返回这个 masterchef 中一共有多少个池子了
+    function poolLength() external view returns (uint256) {
+        return poolInfo.length;
+    }
+```
+
+# 3、必须放在一起讲的四个函数
+```
+    // Update reward variables for all pools. Be careful of gas spending!
+    function massUpdatePools() public {
+        uint256 length = poolInfo.length;
+        for (uint256 pid = 0; pid < length; ++pid) {
+            updatePool(pid);
+        }
+    }
+    
+    // 添加新矿池，指定矿池分配点、LP代币合约地址以及是否更新所有矿池，只有合约 owner 可以调用此函数
+    function add(uint256 _allocPoint, IBEP20 _lpToken, bool _withUpdate) public onlyOwner {
+        if (_withUpdate) {
+            massUpdatePools();
+        }
+        uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
+        totalAllocPoint = totalAllocPoint.add(_allocPoint);
+        poolInfo.push(PoolInfo({
+            lpToken: _lpToken,
+            allocPoint: _allocPoint,
+            lastRewardBlock: lastRewardBlock,
+            accCakePerShare: 0
+        }));
+        updateStakingPool();
+    }
+
+    // Update the given pool's CAKE allocation point. Can only be called by the owner.
+    function set(uint256 _pid, uint256 _allocPoint, bool _withUpdate) public onlyOwner {
+        if (_withUpdate) {
+            massUpdatePools();
+        }
+        totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
+        uint256 prevAllocPoint = poolInfo[_pid].allocPoint;
+        poolInfo[_pid].allocPoint = _allocPoint;
+        if (prevAllocPoint != _allocPoint) {
+            updateStakingPool();
+        }
+    }
+
+    function updateStakingPool() internal {
+        uint256 length = poolInfo.length;
+        uint256 points = 0;
+        for (uint256 pid = 1; pid < length; ++pid) {
+            points = points.add(poolInfo[pid].allocPoint);
+        }
+        if (points != 0) {
+            points = points.div(3);
+            totalAllocPoint = totalAllocPoint.sub(poolInfo[0].allocPoint).add(points);
+            poolInfo[0].allocPoint = points;
+        }
+    }
+```
 
  //
         // We do some fancy math here. Basically, any point in time, the amount of CAKEs
