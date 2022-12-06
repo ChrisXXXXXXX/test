@@ -139,7 +139,7 @@ contract AttackTest is Test {
         //assertEq(address(this).balance, 1855150444286128408); //不能这样，本身合约就有很多ETH
 
         uint ETH_after = address(this).balance;
-        assertEq(ETH_after-ETH_before, 1855150444286128408); //不能这样，本身合约就有很多ETH
+        assertEq(ETH_after-ETH_before, 1855150444286128408);
     }
 
     receive() external payable {}
